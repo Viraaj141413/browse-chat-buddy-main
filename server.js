@@ -231,7 +231,6 @@ app.get('/health', (req, res) => {
     url: browser.currentUrl,
     screenshot: browser.screenshotPath
   });
-  });
 });
 
 // Gemini integration endpoint
@@ -273,7 +272,6 @@ app.post('/gemini', async (req, res) => {
       result: `Executed: ${prompt}`,
       screenshot: browser.screenshotPath,
       url: browser.currentUrl,
-      code: `// Executed command: ${prompt}`, // Ensure code is always returned
       code: `// Executed command: ${prompt}`,
       gemini: { response: `Task completed: ${prompt}` }
     });
