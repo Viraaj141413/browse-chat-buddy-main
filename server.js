@@ -112,6 +112,7 @@ async function takeScreenshot() {
     browser.screenshotPath = '/browser-screenshot.png';
     console.log('Screenshot saved:', screenshotPath);
   } catch (error) {
+    console.error('Error taking screenshot:', error);
     console.error('Screenshot error:', error);
   }
 }
@@ -124,6 +125,7 @@ async function ensureBrowser(req, res, next) {
       return res.status(500).json({ error: 'Failed to start browser' });
     }
   }
+  console.log(`Request to ${req.path}. Current URL: ${browser.currentUrl}, Screenshot: ${browser.screenshotPath}`);
   next();
 }
 
@@ -132,7 +134,8 @@ app.get('/url', ensureBrowser, (req, res) => {
   res.json({ 
     url: browser.currentUrl,
     screenshot: browser.screenshotPath 
-  });
+  }); 
+  console.log('Sent /url response:', { url: browser.currentUrl, screenshot: browser.screenshotPath });
 });
 
 // Get screenshot endpoint
@@ -144,6 +147,7 @@ app.get('/screenshot', ensureBrowser, async (req, res) => {
       screenshot: browser.screenshotPath,
       url: browser.currentUrl 
     });
+    console.log('Sent /screenshot response:', { success: true, screenshot: browser.screenshotPath, url: browser.currentUrl });
   } catch (error) {
     console.error('Screenshot error:', error);
     res.status(500).json({ error: error.message });
@@ -170,7 +174,8 @@ app.post('/navigate', ensureBrowser, async (req, res) => {
       success: true, 
       url: fullUrl,
       screenshot: browser.screenshotPath 
-    });
+    }); 
+    console.log('Sent /navigate response:', { success: true, url: fullUrl, screenshot: browser.screenshotPath });
   } catch (error) {
     console.error('Navigation error:', error);
     res.status(500).json({ error: error.message });
@@ -211,7 +216,8 @@ app.post('/search', ensureBrowser, async (req, res) => {
       success: true,
       screenshot: browser.screenshotPath,
       url: browser.currentUrl 
-    });
+    }); 
+    console.log('Sent /search response:', { success: true, screenshot: browser.screenshotPath, url: browser.currentUrl });
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: error.message });
@@ -224,6 +230,7 @@ app.get('/health', (req, res) => {
     status: browser.instance && browser.page ? 'ready' : 'starting',
     url: browser.currentUrl,
     screenshot: browser.screenshotPath
+  });
   });
 });
 
@@ -266,6 +273,7 @@ app.post('/gemini', async (req, res) => {
       result: `Executed: ${prompt}`,
       screenshot: browser.screenshotPath,
       url: browser.currentUrl,
+      code: `// Executed command: ${prompt}`, // Ensure code is always returned
       code: `// Executed command: ${prompt}`,
       gemini: { response: `Task completed: ${prompt}` }
     });
@@ -282,5 +290,6 @@ app.post('/gemini', async (req, res) => {
 // Start server
 app.listen(port, async () => {
   console.log(`Server running at http://localhost:${port}`);
+  console.log(`Serving static files from: ${path.join(process.cwd(), 'public')}`);
   await startBrowser();
 }); 
