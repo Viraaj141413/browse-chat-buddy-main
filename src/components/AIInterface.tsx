@@ -40,102 +40,104 @@ type BrowserStatus = 'idle' | 'running' | 'paused' | 'completed' | 'error';
 const BrowserPreview = () => {
   const [currentUrl, setCurrentUrl] = useState('about:blank');
   const [status, setStatus] = useState('Connecting...');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const connectWebSocket = useCallback(() => {
+  // Function to fetch browser status and screenshot
+  const fetchBrowserStatus = useCallback(async () => {
     try {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        return;
+      const response = await fetch('http://localhost:3001/health');
+      const data = await response.json();
+      
+      setStatus(data.status === 'ready' ? 'Connected' : 'Starting...');
+      setCurrentUrl(data.url || 'about:blank');
+      
+      if (data.screenshot) {
+        setScreenshotUrl(`http://localhost:3001${data.screenshot}?t=${Date.now()}`);
       }
-
-      setStatus('Connecting to browser...');
-      const ws = new WebSocket('ws://localhost:3001');
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        setStatus('Connected');
-        setError(null);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('Received message:', data);
-          
-          if (data.type === 'status') {
-            setStatus(data.status);
-          } else if (data.type === 'url') {
-            setCurrentUrl(data.url);
-            setIsLoading(false);
-          }
-        } catch (e) {
-          console.error('Failed to parse WebSocket message:', e);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        setStatus('Disconnected');
-        wsRef.current = null;
-        setTimeout(connectWebSocket, 2000);
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setError('Failed to connect to browser');
-      };
-    } catch (error) {
-      console.error('Failed to create WebSocket:', error);
-      setError('Failed to connect to browser');
+      
+      setIsLoading(false);
+      setError(null);
+    } catch (e) {
+      console.error('Failed to fetch browser status:', e);
+      setError('Failed to connect to browser server');
+      setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    connectWebSocket();
+    // Initial fetch
+    fetchBrowserStatus();
+    
+    // Set up polling every 2 seconds
+    intervalRef.current = setInterval(fetchBrowserStatus, 2000);
+    
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
       }
     };
-  }, [connectWebSocket]);
-
-  // Function to check browser status
-  const checkBrowserStatus = useCallback(async () => {
-    try {
-      const response = await fetch('http://localhost:3001');
-      const data = await response.json();
-      if (!data.browserActive) {
-        setError('Browser not active');
-      }
-    } catch (e) {
-      setError('Cannot connect to server');
-    }
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(checkBrowserStatus, 5000);
-    return () => clearInterval(interval);
-  }, [checkBrowserStatus]);
+  }, [fetchBrowserStatus]);
 
   // Function to send a command to the browser
   const sendCommand = async (command: string) => {
     try {
       setIsLoading(true);
-      const response = await fetch('http://localhost:3001/command', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ command })
-      });
+      let response;
+      
+      if (command.startsWith('go to ')) {
+        const url = command.replace('go to ', '');
+        response = await fetch('http://localhost:3001/navigate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+      } else {
+        response = await fetch('http://localhost:3001/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: command })
+        });
+      }
+      
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || 'Failed to execute command');
       }
+      
+      // Update state with new data
+      if (data.url) setCurrentUrl(data.url);
+      if (data.screenshot) {
+        setScreenshotUrl(`http://localhost:3001${data.screenshot}?t=${Date.now()}`);
+      }
+      
+      setIsLoading(false);
+    } catch (e) {
+      setError(e.message);
+      setIsLoading(false);
+    }
+  };
+
+  // Function to refresh screenshot
+  const refreshScreenshot = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch('http://localhost:3001/screenshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to refresh screenshot');
+      }
+      
+      if (data.screenshot) {
+        setScreenshotUrl(`http://localhost:3001${data.screenshot}?t=${Date.now()}`);
+      }
+      
       setIsLoading(false);
     } catch (e) {
       setError(e.message);
@@ -160,18 +162,32 @@ const BrowserPreview = () => {
         <div className="text-sm text-muted-foreground">{currentUrl}</div>
       </div>
       <div className="flex-1 relative">
-        {currentUrl !== 'about:blank' && (
-          <iframe
-            ref={iframeRef}
-            src={currentUrl}
-            className="w-full h-full border-none"
-            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-            allow="fullscreen"
+        {screenshotUrl ? (
+          <img
+            src={screenshotUrl}
+            alt="Browser Screenshot"
+            className="w-full h-full object-contain bg-white"
+            onError={() => setError('Failed to load screenshot')}
           />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gray-100">
+            <div className="text-center">
+              <div className="text-gray-500 mb-2">No browser preview available</div>
+              <button
+                onClick={refreshScreenshot}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Refresh Preview
+              </button>
+            </div>
+          </div>
         )}
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/50">
-            <div className="animate-spin">⌛</div>
+            <div className="flex items-center space-x-2">
+              <div className="animate-spin">⌛</div>
+              <span>Loading...</span>
+            </div>
           </div>
         )}
         {error && (
@@ -179,7 +195,7 @@ const BrowserPreview = () => {
             <div className="text-center p-4 bg-red-100 rounded-lg">
               <p className="text-red-600">{error}</p>
               <button
-                onClick={connectWebSocket}
+                onClick={fetchBrowserStatus}
                 className="mt-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
               >
                 Reconnect
@@ -201,6 +217,12 @@ const BrowserPreview = () => {
             className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
           >
             Go to YouTube
+          </button>
+          <button
+            onClick={refreshScreenshot}
+            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+          >
+            Refresh
           </button>
         </div>
       </div>
@@ -479,7 +501,9 @@ export const AIInterface = () => {
     setIsLoading(true);
     try {
       const response = await axios.post('http://localhost:3001/gemini', { prompt: inputMessage });
-      setGeminiPreview(response.data.screenshot);
+      if (response.data.screenshot) {
+        setGeminiPreview(`http://localhost:3001${response.data.screenshot}?t=${Date.now()}`);
+      }
       setGeminiCode(response.data.code);
       setGeminiRaw(response.data.gemini);
       setMessages(prev => [...prev, {
