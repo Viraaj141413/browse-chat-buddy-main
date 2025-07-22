@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Browser Control</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-darker: #0a0f1d;
+            --bg-light: #1e293b;
+            --text-light: #e2e8f0;
+            --text-dim: #94a3b8;
+            --border: #334155;
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #22c55e;
+            --error: #ef4444;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            background: var(--bg-dark);
+            color: var(--text-light);
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background: var(--bg-darker);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            padding: 20px;
+            background: var(--bg-darker);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .url-bar {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-light);
+            color: var(--text-light);
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .url-bar:focus {
+            border-color: var(--primary);
+        }
+
+        .button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .button:hover {
+            background: var(--primary-dark);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            background: var(--bg-light);
+            color: var(--text-light);
+            font-size: 14px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+        }
+
+        .toast.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.error {
+            background: var(--error);
+            color: white;
+        }
+
+        .toast.success {
+            background: var(--success);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Browser Control</h1>
+        </div>
+
+        <div class="controls">
+            <input type="text" id="commandInput" class="url-bar" 
+                   placeholder="Type 'go to website.com' or enter a search term"
+                   autocomplete="off" spellcheck="false">
+            <button onclick="handleCommand()" class="button">Send</button>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const commandInput = document.getElementById('commandInput');
+        const toast = document.getElementById('toast');
+
+        // Show toast message
+        function showToast(message, type = '') {
+            toast.textContent = message;
+            toast.className = 'toast visible' + (type ? ` ${type}` : '');
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        // Handle command
+        async function handleCommand() {
+            const command = commandInput.value.trim();
+            if (!command) return;
+
+            try {
+                if (command.toLowerCase().startsWith('go to ')) {
+                    const url = command.slice(6).trim();
+                    await sendCommand('/navigate', { url });
+                } else {
+                    await sendCommand('/search', { query: command });
+                }
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Send command to server
+        async function sendCommand(endpoint, data) {
+            try {
+                const response = await fetch(`http://localhost:${location.port}${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || 'Command failed');
+                }
+
+                showToast('Command executed successfully', 'success');
+                commandInput.value = ''; // Clear input on success
+            } catch (error) {
+                throw new Error(`Failed to execute command: ${error.message}`);
+            }
+        }
+
+        // Handle Enter key
+        commandInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleCommand();
+            }
+        });
+    </script>
+</body>
+</html> 
