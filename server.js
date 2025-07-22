@@ -20,8 +20,14 @@ let browser = {
   screenshotPath: null
 };
 
-// Start Puppeteer browser with retry logic
-async function startBrowser(retryCount = 0) {
+// Ensure public directory exists
+const publicDir = path.join(process.cwd(), 'public');
+if (!fs.existsSync(publicDir)) {
+  fs.mkdirSync(publicDir, { recursive: true });
+}
+
+// Start Puppeteer browser
+async function startBrowser() {
   if (browser.isStarting) {
     console.log('Browser already starting...');
     return false;
@@ -35,13 +41,14 @@ async function startBrowser(retryCount = 0) {
       try {
         await browser.instance.close();
       } catch (error) {
-        console.log('Error closing browser:', error.message);
+        console.log('Error closing existing browser:', error.message);
       }
     }
 
-    console.log('Starting Puppeteer Chrome...');
+    console.log('🚀 Starting Puppeteer Chrome browser...');
+    
     browser.instance = await puppeteer.launch({
-      headless: false,
+      headless: false, // ALWAYS show browser window
       defaultViewport: {
         width: 1200,
         height: 800
@@ -52,53 +59,50 @@ async function startBrowser(retryCount = 0) {
         '--disable-dev-shm-usage',
         '--disable-web-security',
         '--disable-features=VizDisplayCompositor',
-        '--start-maximized'
-      ]
+        '--start-maximized',
+        '--disable-blink-features=AutomationControlled'
+      ],
+      ignoreDefaultArgs: ['--enable-automation'],
+      ignoreHTTPSErrors: true
     });
 
     browser.page = await browser.instance.newPage();
     
     // Set user agent to avoid bot detection
-    await browser.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+    await browser.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-    // Track navigation
-    browser.page.on('framenavigated', () => {
-      browser.currentUrl = browser.page.url();
-      console.log('URL changed:', browser.currentUrl);
-      // Take screenshot after navigation
-      takeScreenshot();
+    // Navigate to Google
+    console.log('🌐 Navigating to Google...');
+    await browser.page.goto('https://www.google.com', { 
+      waitUntil: 'networkidle2',
+      timeout: 30000 
     });
-
-    // Handle page errors
-    browser.page.on('pageerror', error => {
-      console.log('Page error:', error);
-    });
-
-    await browser.page.goto('https://www.google.com');
+    
     browser.currentUrl = 'https://www.google.com';
+    
+    // Take initial screenshot
     await takeScreenshot();
-    console.log('Browser ready');
+    
+    console.log('✅ Browser ready and window opened!');
     browser.isStarting = false;
     return true;
+    
   } catch (error) {
-    console.error('Browser error:', error);
+    console.error('❌ Browser startup error:', error);
     browser.isStarting = false;
-
-    // Retry up to 3 times
-    if (retryCount < 3) {
-      console.log(`Retrying browser start (attempt ${retryCount + 1})...`);
-      return startBrowser(retryCount + 1);
-    }
     return false;
   }
 }
 
 // Take screenshot and save it
 async function takeScreenshot() {
-  if (!browser.page) return;
+  if (!browser.page) {
+    console.log('No page available for screenshot');
+    return;
+  }
   
   try {
-    const screenshotPath = path.join(process.cwd(), 'public', 'browser-screenshot.png');
+    const screenshotPath = path.join(publicDir, 'browser-screenshot.png');
     await browser.page.screenshot({ 
       path: screenshotPath,
       fullPage: false,
@@ -110,36 +114,37 @@ async function takeScreenshot() {
       }
     });
     browser.screenshotPath = '/browser-screenshot.png';
-    console.log('Screenshot saved:', screenshotPath);
+    console.log('📸 Screenshot saved');
   } catch (error) {
-    console.error('Error taking screenshot:', error);
     console.error('Screenshot error:', error);
   }
 }
 
-// Ensure browser is running before handling requests
+// Ensure browser is running
 async function ensureBrowser(req, res, next) {
   if (!browser.instance || !browser.page) {
+    console.log('Browser not running, starting...');
     const success = await startBrowser();
     if (!success) {
       return res.status(500).json({ error: 'Failed to start browser' });
     }
   }
-  console.log(`Request to ${req.path}. Current URL: ${browser.currentUrl}, Screenshot: ${browser.screenshotPath}`);
   next();
 }
 
-// Get current URL
-app.get('/url', ensureBrowser, (req, res) => {
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const isReady = browser.instance && browser.page && !browser.isStarting;
   res.json({ 
+    status: isReady ? 'ready' : 'starting',
     url: browser.currentUrl,
-    screenshot: browser.screenshotPath 
-  }); 
-  console.log('Sent /url response:', { url: browser.currentUrl, screenshot: browser.screenshotPath });
+    screenshot: browser.screenshotPath
+  });
+  console.log('Health check:', { status: isReady ? 'ready' : 'starting', url: browser.currentUrl });
 });
 
-// Get screenshot endpoint
-app.get('/screenshot', ensureBrowser, async (req, res) => {
+// Get screenshot
+app.post('/screenshot', ensureBrowser, async (req, res) => {
   try {
     await takeScreenshot();
     res.json({ 
@@ -147,7 +152,6 @@ app.get('/screenshot', ensureBrowser, async (req, res) => {
       screenshot: browser.screenshotPath,
       url: browser.currentUrl 
     });
-    console.log('Sent /screenshot response:', { success: true, screenshot: browser.screenshotPath, url: browser.currentUrl });
   } catch (error) {
     console.error('Screenshot error:', error);
     res.status(500).json({ error: error.message });
@@ -163,10 +167,13 @@ app.post('/navigate', ensureBrowser, async (req, res) => {
     }
 
     const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+    console.log('🌐 Navigating to:', fullUrl);
+    
     await browser.page.goto(fullUrl, { 
       waitUntil: 'networkidle2',
       timeout: 30000 
     });
+    
     browser.currentUrl = fullUrl;
     await takeScreenshot();
     
@@ -175,7 +182,6 @@ app.post('/navigate', ensureBrowser, async (req, res) => {
       url: fullUrl,
       screenshot: browser.screenshotPath 
     }); 
-    console.log('Sent /navigate response:', { success: true, url: fullUrl, screenshot: browser.screenshotPath });
   } catch (error) {
     console.error('Navigation error:', error);
     res.status(500).json({ error: error.message });
@@ -190,7 +196,9 @@ app.post('/search', ensureBrowser, async (req, res) => {
       return res.status(400).json({ error: 'Search query required' });
     }
 
-    // Make sure we're on Google
+    console.log('🔍 Searching for:', query);
+
+    // Go to Google if not already there
     if (!browser.currentUrl.includes('google.com')) {
       await browser.page.goto('https://www.google.com', { 
         waitUntil: 'networkidle2',
@@ -198,18 +206,22 @@ app.post('/search', ensureBrowser, async (req, res) => {
       });
     }
 
-    // Wait for search box and type query
+    // Search
     await browser.page.waitForSelector('textarea[name="q"], input[name="q"]', { timeout: 10000 });
     await browser.page.click('textarea[name="q"], input[name="q"]');
+    
+    // Clear and type
     await browser.page.evaluate(() => {
       const searchBox = document.querySelector('textarea[name="q"], input[name="q"]');
       if (searchBox) searchBox.value = '';
     });
+    
     await browser.page.type('textarea[name="q"], input[name="q"]', query);
     await browser.page.keyboard.press('Enter');
     
-    // Wait for search results
+    // Wait for results
     await browser.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+    browser.currentUrl = browser.page.url();
     await takeScreenshot();
     
     res.json({ 
@@ -217,39 +229,23 @@ app.post('/search', ensureBrowser, async (req, res) => {
       screenshot: browser.screenshotPath,
       url: browser.currentUrl 
     }); 
-    console.log('Sent /search response:', { success: true, screenshot: browser.screenshotPath, url: browser.currentUrl });
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: browser.instance && browser.page ? 'ready' : 'starting',
-    url: browser.currentUrl,
-    screenshot: browser.screenshotPath
-  });
-});
-
-// Gemini integration endpoint
-app.post('/gemini', async (req, res) => {
+// Gemini integration
+app.post('/gemini', ensureBrowser, async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
-    // Ensure browser is running
-    if (!browser.instance || !browser.page) {
-      await startBrowser();
-    }
-
-    // For demo purposes, simulate AI processing
-    console.log('Processing Gemini request:', prompt);
+    console.log('🤖 Processing Gemini request:', prompt);
     
-    // Perform a search based on the prompt
+    // Simple command processing
     if (prompt.toLowerCase().includes('search')) {
       const searchQuery = prompt.replace(/search for?/i, '').trim();
       await browser.page.goto('https://www.google.com');
@@ -265,6 +261,7 @@ app.post('/gemini', async (req, res) => {
       }
     }
 
+    browser.currentUrl = browser.page.url();
     await takeScreenshot();
 
     res.json({
@@ -285,9 +282,38 @@ app.post('/gemini', async (req, res) => {
   }
 });
 
-// Start server
+// Start server and browser
 app.listen(port, async () => {
-  console.log(`Server running at http://localhost:${port}`);
-  console.log(`Serving static files from: ${path.join(process.cwd(), 'public')}`);
-  await startBrowser();
-}); 
+  console.log(`🚀 Server running at http://localhost:${port}`);
+  console.log(`📁 Serving static files from: ${publicDir}`);
+  
+  // Start browser immediately
+  console.log('🔄 Starting browser...');
+  const success = await startBrowser();
+  
+  if (success) {
+    console.log('✅ Browser window opened successfully!');
+    console.log('🌐 You should see a Chrome window open');
+  } else {
+    console.log('❌ Failed to start browser');
+  }
+});
+
+// Handle process termination
+process.on('SIGINT', async () => {
+  console.log('🔄 Shutting down...');
+  if (browser.instance) {
+    await browser.instance.close();
+    console.log('🔒 Browser closed');
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('🔄 Shutting down...');
+  if (browser.instance) {
+    await browser.instance.close();
+    console.log('🔒 Browser closed');
+  }
+  process.exit(0);
+});
