@@ -57,6 +57,7 @@ const BrowserPreview = () => {
       if (data.screenshot) {
         setScreenshotUrl(`http://localhost:3001${data.screenshot}?t=${Date.now()}`);
       }
+      console.log('BrowserPreview: Fetched health status:', data);
       
       setIsLoading(false);
       setError(null);
@@ -112,6 +113,7 @@ const BrowserPreview = () => {
       if (data.screenshot) {
         setScreenshotUrl(`http://localhost:3001${data.screenshot}?t=${Date.now()}`);
       }
+      console.log('BrowserPreview: Command executed, new data:', data);
       
       setIsLoading(false);
     } catch (e) {
@@ -137,6 +139,7 @@ const BrowserPreview = () => {
       if (data.screenshot) {
         setScreenshotUrl(`http://localhost:3001${data.screenshot}?t=${Date.now()}`);
       }
+      console.log('BrowserPreview: Screenshot refreshed, new data:', data);
       
       setIsLoading(false);
     } catch (e) {
@@ -168,6 +171,7 @@ const BrowserPreview = () => {
             alt="Browser Screenshot"
             className="w-full h-full object-contain bg-white"
             onError={() => setError('Failed to load screenshot')}
+            onLoad={() => console.log('BrowserPreview: Screenshot image loaded successfully.')}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gray-100">
@@ -302,6 +306,7 @@ export const AIInterface = () => {
       });
 
       if (aiError) throw aiError;
+      console.log('AIInterface: Gemini AI response:', aiResponse);
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -324,6 +329,7 @@ export const AIInterface = () => {
       });
 
       if (browserError) throw browserError;
+      console.log('AIInterface: Browser automation start response:', browserResponse);
 
       if (browserResponse.success) {
         setSessionId(browserResponse.sessionId);
@@ -337,6 +343,7 @@ export const AIInterface = () => {
 
     } catch (error: any) {
       console.error('Error:', error);
+      console.error('AIInterface: Full error object:', error);
       toast.error('Failed to process request: ' + error.message);
       
       const errorMessage: Message = {
@@ -369,6 +376,7 @@ export const AIInterface = () => {
         });
 
         if (error) throw error;
+        console.log('AIInterface: Screenshot polling data:', data);
 
         if (data.success) {
           setScreenshotUrl(data.screenshotUrl);
@@ -380,6 +388,7 @@ export const AIInterface = () => {
           }
         }
       } catch (error) {
+        console.error('AIInterface: Full screenshot polling error object:', error);
         console.error('Screenshot polling error:', error);
       }
     };
@@ -411,6 +420,7 @@ export const AIInterface = () => {
       });
 
       if (error) throw error;
+      console.log('AIInterface: Pause session response:', data);
 
       if (data.success) {
         setBrowserStatus('paused');
@@ -439,6 +449,7 @@ export const AIInterface = () => {
       });
 
       if (error) throw error;
+      console.log('AIInterface: Resume session response:', data);
 
       if (data.success) {
         setBrowserStatus('running');
@@ -467,6 +478,7 @@ export const AIInterface = () => {
       });
 
       if (error) throw error;
+      console.log('AIInterface: Stop session response:', data);
 
       if (data.success) {
         setBrowserStatus('idle');
@@ -499,6 +511,7 @@ export const AIInterface = () => {
     setGeminiError(null);
     setGeminiRaw(null);
     setIsLoading(true);
+    console.log('AIInterface: Sending Gemini browser request with prompt:', inputMessage);
     try {
       const response = await axios.post('http://localhost:3001/gemini', { prompt: inputMessage });
       if (response.data.screenshot) {
@@ -506,6 +519,7 @@ export const AIInterface = () => {
       }
       setGeminiCode(response.data.code);
       setGeminiRaw(response.data.gemini);
+      console.log('AIInterface: Gemini browser response:', response.data);
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         type: 'ai',
